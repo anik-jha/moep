@@ -1,0 +1,8 @@
+{"id": "py-func", "prompt": "Write a Python function `merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]` that merges overlapping intervals. Include a short docstring."}
+{"id": "bugfix", "prompt": "This function should return the indices of the two numbers that add up to target, but it crashes. Fix it and explain the bug in one sentence.\n\ndef two_sum(nums, target):\n    seen = {}\n    for i, n in enumerate(nums):\n        if target - n in seen:\n            return [seen[target - n], i]\n        seen[n] = i"}
+{"id": "sql", "prompt": "Given tables users(id, name) and orders(id, user_id, total, created_at), write a SQL query for the top 5 users by total order value in the last 30 days."}
+{"id": "regex", "prompt": "Write a regex that matches semantic version strings like 1.2.3, 10.0.1-alpha.2, and 2.0.0+build.5, and explain each part briefly."}
+{"id": "explain", "prompt": "Explain the difference between a process and a thread in two short paragraphs."}
+{"id": "rust", "prompt": "Write a Rust function that reads a file path from its argument and returns the number of lines containing the word \"error\", ignoring case. Use anyhow for errors."}
+{"id": "tool-use", "prompt": "You have a function get_weather(city: str) -> dict available. The user asks: \"Should I bring an umbrella to Berlin tomorrow?\" Describe the exact call you would make and how you would use its result."}
+{"id": "chat", "prompt": "My unit tests pass locally but fail in CI with a timezone-related assertion error. List the three most likely causes and one fix for each."}
