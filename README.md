@@ -4,7 +4,8 @@ Prune MoE experts out of big open-weight models so they fit on machines people
 actually own, then check honestly whether that was a good idea.
 
 This is the pipeline behind the paper
-*Half the Experts, All the Code* (arXiv link coming; study on Qwen3.6-35B-A3B
+[*Half the Experts, All the Code*](https://arxiv.org/abs/2607.16721)
+(arXiv:2607.16721; study on Qwen3.6-35B-A3B
 and Gemma-4-26B-A4B). The short version of what we found: removing half the
 experts of a general MoE with coding-focused calibration is essentially free
 for coding. Below that, don't prune - quantize. We tried five different ways
@@ -31,10 +32,19 @@ every time, which is itself the result.
 ## Checkpoints
 
 Pruned and quantized GGUFs:
-[huggingface.co/anik-jha/Qwen3.6-35B-A3B-coding-reap50-GGUF](https://huggingface.co/anik-jha/Qwen3.6-35B-A3B-coding-reap50-GGUF). If you just want something to run: the 50%-keep Qwen specialist at
-Q4_K_M or Q5_K_M with imatrix is the point of the whole exercise - at 11-13 GB
-it beats 2-bit quantization of the full model on HumanEval+ at the same
-memory.
+
+- [Qwen3.6-35B-A3B-coding-reap50-GGUF](https://huggingface.co/anik-jha/Qwen3.6-35B-A3B-coding-reap50-GGUF)
+  - if you just want something to run. The 50%-keep Qwen specialist at Q4_K_M
+  or Q5_K_M with imatrix is the point of the whole exercise: at 11-13 GB it
+  beats 2-bit quantization of the full model on HumanEval+ at the same memory.
+- [Qwen3.6-35B-A3B-coding-reap25-healed-GGUF](https://huggingface.co/anik-jha/Qwen3.6-35B-A3B-coding-reap25-healed-GGUF)
+  - the healed 25%-keep checkpoint. Released for completeness, not for use:
+  healing is GPU-nondeterministic and so this is the one point in the study
+  that cannot be rebuilt from its keep-set JSON. At its memory budget, 2-bit
+  quantization of the unpruned model still wins.
+
+Every other point in the paper is reproducible from `artifacts/selections/`
+plus the base model, so it is not mirrored here.
 
 ## Calibration data
 
