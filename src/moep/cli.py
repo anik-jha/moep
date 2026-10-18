@@ -127,6 +127,37 @@ def cmd_prune(a):
                {"model": Path(a.out) / "model.safetensors.index.json"}, report | {"selection_info": info}, t0)
 
 
+def cmd_gguf_score(a):
+    from .gguf_prune import experts_used
+    from .gguf_select import load_stats, select, split_half
+    from .manifest import Run
+    from .scoring import save_selection
+
+    run, t0 = Run(a.run), time.time()
+    stats, used = load_stats(a.stats), experts_used(a.gguf)
+    keep, info = select(stats, a.criterion, a.keep_ratio, used)
+    info["split_half"] = split_half(stats, a.criterion, a.keep_ratio, used)
+    save_selection(a.out, list(keep.values()), list(keep), info)
+    sh = info["split_half"]
+    run.record(f"gguf_score_{a.criterion}_{a.keep_ratio}", vars(a) | {"func": None}, {"selection": a.out},
+               {k: v for k, v in sh.items() if not isinstance(v, dict)}
+               | {"experts_kept": info["experts_kept"], "experts_total": info["experts_total"]}, t0)
+
+
+def cmd_gguf_prune(a):
+    from .gguf_prune import prune_gguf, verify_pruned
+    from .manifest import Run
+    from .scoring import load_selection
+
+    run, t0 = Run(a.run), time.time()
+    keep, info = load_selection(a.selection)
+    report = prune_gguf(a.src, a.out, keep)
+    report["verify"] = verify_pruned(a.src, a.out, keep)
+    report["file_bytes"] = Path(a.out).stat().st_size
+    run.record(f"gguf_prune_{Path(a.out).stem}", vars(a) | {"func": None}, {"gguf": a.out},
+               report | {"selection_info": {k: v for k, v in info.items() if k != "split_half"}}, t0)
+
+
 def cmd_smoke(a):
     from .evalx import eval_has, smoke, write_eval
     from .manifest import Run
@@ -164,7 +195,7 @@ def cmd_export(a):
 
 
 def cmd_codeval(a):
-    from .codeval import run_codeval
+    from .codeval import SERVER_BIN, run_codeval
     from .evalx import eval_has, write_eval
     from .manifest import Run
 
@@ -173,8 +204,25 @@ def cmd_codeval(a):
     if eval_has(a.run, key) and not a.force:
         print(f"codeval: {key} already in eval.json (--force to redo)")
         return
-    result = run_codeval(a.gguf, a.run, a.tag, dataset=a.dataset, port=a.port, force=a.force)
+    result = run_codeval(a.gguf, a.run, a.tag, dataset=a.dataset, port=a.port, force=a.force,
+                         server=a.server or SERVER_BIN, reasoning_format=a.reasoning_format)
     p = write_eval(a.run, f"codeval_{a.tag}_{a.dataset}", result)
+    print(json.dumps(result | {"written": str(p)}, indent=2))
+
+
+def cmd_toolcall(a):
+    from .codeval import SERVER_BIN
+    from .evalx import eval_has, write_eval
+    from .manifest import Run
+    from .toolcall_eval import run_toolcall
+
+    Run(a.run)
+    key = f"toolcall_{a.tag}"
+    if eval_has(a.run, key) and not a.force:
+        print(f"toolcall: {key} already in eval.json (--force to redo)")
+        return
+    result = run_toolcall(a.gguf, a.run, a.tag, port=a.port, server=a.server or SERVER_BIN)
+    p = write_eval(a.run, key, result)
     print(json.dumps(result | {"written": str(p)}, indent=2))
 
 
@@ -272,13 +320,34 @@ def main():
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_smoke)
 
+    p = sub.add_parser("gguf-score")
+    p.add_argument("--run", required=True); p.add_argument("--stats", required=True)
+    p.add_argument("--gguf", required=True, help="source GGUF (for experts routed per layer)")
+    p.add_argument("--criterion", default="reap", choices=["reap", "gate_mass", "freq"])
+    p.add_argument("--keep-ratio", type=float, required=True); p.add_argument("--out", required=True)
+    p.set_defaults(func=cmd_gguf_score)
+
+    p = sub.add_parser("gguf-prune")
+    p.add_argument("--run", required=True); p.add_argument("--src", required=True)
+    p.add_argument("--selection", required=True); p.add_argument("--out", required=True)
+    p.set_defaults(func=cmd_gguf_prune)
+
     p = sub.add_parser("codeval")
     p.add_argument("--run", required=True); p.add_argument("--gguf", required=True)
     p.add_argument("--tag", required=True); p.add_argument("--dataset", default="humaneval",
                                                            choices=["humaneval", "mbpp"])
     p.add_argument("--port", type=int, default=8090)
+    p.add_argument("--server", help="llama-server binary (default: codeval.SERVER_BIN)")
+    p.add_argument("--reasoning-format", default="none", choices=["none", "deepseek"])
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_codeval)
+
+    p = sub.add_parser("toolcall")
+    p.add_argument("--run", required=True); p.add_argument("--gguf", required=True)
+    p.add_argument("--tag", required=True); p.add_argument("--port", type=int, default=8098)
+    p.add_argument("--server", help="llama-server binary (default: codeval.SERVER_BIN)")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_toolcall)
 
     p = sub.add_parser("repaireval")
     p.add_argument("--run", required=True); p.add_argument("--gguf", required=True)

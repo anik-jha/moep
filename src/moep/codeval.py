@@ -37,7 +37,8 @@ def _wait_health(port: int, proc: subprocess.Popen, timeout_s: int = 300):
 
 @contextmanager
 def llama_server(gguf: str | Path, port: int, ctx: int = 4096, parallel: int = 1,
-                 log_file: Path | None = None, extra_args: tuple = ()):
+                 log_file: Path | None = None, extra_args: tuple = (),
+                 server: str | Path = SERVER_BIN, reasoning_format: str = "none"):
     """Start llama-server on the GGUF, yield once /health is 200, always tear down.
     The batch-safe way to exercise a GGUF (llama-cli drops into conversation mode
     when the model embeds a chat template and then blocks on a tty)."""
@@ -49,10 +50,13 @@ def llama_server(gguf: str | Path, port: int, ctx: int = 4096, parallel: int = 1
         # random50), and evalplus retries a 500 forever, so a collapsed model hangs the
         # eval instead of scoring near zero. Parsing off means a looping model returns its
         # loop, fails the tests, and is recorded. Content is unchanged for models that do
-        # not emit thought tags, which is all of them here (--reasoning off).
-        [SERVER_BIN, "-m", str(gguf), "--port", str(port), "-ngl", "999",
+        # not emit thought tags (the Qwen3.6 and Gemma4 runs). A model that emits an empty
+        # <think></think> even with --reasoning off (Nemotron 3.5 Bolt, 2026-10-17) needs
+        # "deepseek": evalplus.sanitize truncates "<think></think>def f(...)" to its first
+        # line, failing every task.
+        [str(server), "-m", str(gguf), "--port", str(port), "-ngl", "999",
          "-c", str(ctx * parallel), "--parallel", str(parallel), "--temp", "0",
-         "--reasoning-format", "none", *extra_args],
+         "--reasoning-format", reasoning_format, *extra_args],
         stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
         # Local chat.cpp patch (env-gated): a generation that fails the chat-format
         # grammar is returned as plain content instead of an HTTP 500. evalplus retries
@@ -137,7 +141,7 @@ def _select_samples_file(root: Path, dataset: str) -> Path | None:
 
 def run_codeval(gguf: str | Path, run_dir: str | Path, tag: str, dataset: str = "humaneval",
                 port: int = 8090, ctx: int = 16384, parallel: int = 4, force: bool = False,
-                log=print) -> dict:
+                log=print, server: str | Path = SERVER_BIN, reasoning_format: str = "none") -> dict:
     run_dir = Path(run_dir)
     root = run_dir / "evalplus" / tag / dataset
     # evalplus.codegen silently RESUMES from any samples already under --root and will
@@ -150,7 +154,8 @@ def run_codeval(gguf: str | Path, run_dir: str | Path, tag: str, dataset: str = 
     # Code evals run in non-thinking mode for every model (base and pruned alike):
     # greedy pass@1 with reasoning off is the standard, comparable configuration.
     with llama_server(gguf, port, ctx=ctx, parallel=parallel, log_file=root / "server.log",
-                      extra_args=("--reasoning", "off")):
+                      extra_args=("--reasoning", "off"), server=server,
+                      reasoning_format=reasoning_format):
         _preflight_chat(port)
         log(f"codeval[{tag}/{dataset}]: preflight OK, generating...")
         gen = subprocess.run(
@@ -170,6 +175,7 @@ def run_codeval(gguf: str | Path, run_dir: str | Path, tag: str, dataset: str = 
     log(f"codeval[{tag}/{dataset}]: evaluating {samples.name}")
     scores = evaluate_samples(dataset, samples, root / "evaluate.log")
 
-    result = {"gguf": str(gguf), "dataset": dataset, "tag": tag, "scores": scores}
+    result = {"gguf": str(gguf), "dataset": dataset, "tag": tag, "server": str(server),
+              "reasoning_format": reasoning_format, "scores": scores}
     log(f"codeval[{tag}/{dataset}]: {result['scores']}")
     return result
